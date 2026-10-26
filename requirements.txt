@@ -1,0 +1,4 @@
+# Dependencias del sistema, no paquetes Python:
+# GTK 4 (gtk4)
+# pkg-config
+# GCC o Clang
