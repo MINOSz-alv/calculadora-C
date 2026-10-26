@@ -1,0 +1,83 @@
+name: Crear instalador de KramerLab para Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Descargar el proyecto
+        uses: actions/checkout@v4
+
+      - name: Instalar GTK4 y compilador C
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-gtk4
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-toolchain
+            make
+
+      - name: Compilar y preparar dependencias
+        shell: msys2 {0}
+        run: |
+          mkdir -p build/bin build/share build/lib
+
+          gcc -mwindows -Wall -Wextra -O2 src/main.c \
+            -o build/bin/KramerLab.exe \
+            $(pkg-config --cflags --libs gtk4) -lm
+
+          ldd build/bin/KramerLab.exe |
+            awk '$3 ~ /^\/ucrt64\/bin\// {print $3}' |
+            sort -u |
+            while read dll; do
+              cp "$dll" build/bin/
+            done
+
+          if [ -d /ucrt64/share/glib-2.0 ]; then
+            cp -r /ucrt64/share/glib-2.0 build/share/
+          fi
+
+          if [ -d /ucrt64/share/icons/Adwaita ]; then
+            mkdir -p build/share/icons
+            cp -r /ucrt64/share/icons/Adwaita build/share/icons/
+          fi
+
+          if [ -d /ucrt64/share/themes/Adwaita ]; then
+            mkdir -p build/share/themes
+            cp -r /ucrt64/share/themes/Adwaita build/share/themes/
+          fi
+
+          if [ -d /ucrt64/lib/gtk-4.0 ]; then
+            cp -r /ucrt64/lib/gtk-4.0 build/lib/
+          fi
+
+          if [ -d build/share/glib-2.0/schemas ]; then
+            glib-compile-schemas build/share/glib-2.0/schemas
+          fi
+
+      - name: Instalar Inno Setup
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+
+      - name: Crear instalador
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force installer-output | Out-Null
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer.iss
+          if ($LASTEXITCODE -ne 0) {
+            throw "No se pudo crear el instalador."
+          }
+
+      - name: Publicar instalador
+        uses: actions/upload-artifact@v4
+        with:
+          name: KramerLab-Instalador-Windows
+          path: installer-output/KramerLab-Setup.exe
