@@ -3,15 +3,26 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define N 3
+#define MAX_N 3
 
 typedef struct {
-    GtkWidget *entries[N][N + 1];
+    GtkWidget *entries[MAX_N][MAX_N + 1];
+    GtkWidget *equation_labels[MAX_N];
+    GtkWidget *variable_headers[MAX_N];
+    GtkWidget *dimension_dropdown;
+    GtkWidget *grid;
+    GtkWidget *result_header;
     GtkWidget *result_view;
     GtkWidget *status_label;
 } AppWidgets;
 
-static double determinant(const double m[N][N]) {
+static int selected_dimension(AppWidgets *w) {
+    return gtk_drop_down_get_selected(GTK_DROP_DOWN(w->dimension_dropdown)) == 0 ? 2 : 3;
+}
+
+static double determinant(const double m[MAX_N][MAX_N], int n) {
+    if (n == 2)
+        return m[0][0] * m[1][1] - m[0][1] * m[1][0];
     return m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
          - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
          + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
@@ -22,10 +33,11 @@ static void set_result(AppWidgets *w, const char *text) {
     gtk_text_buffer_set_text(buffer, text, -1);
 }
 
-static gboolean read_system(AppWidgets *w, double a[N][N], double b[N]) {
-    for (int i = 0; i < N; i++) {
-        for (int j = 0; j < N + 1; j++) {
-            const char *raw = gtk_editable_get_text(GTK_EDITABLE(w->entries[i][j]));
+static gboolean read_system(AppWidgets *w, double a[MAX_N][MAX_N], double b[MAX_N], int n) {
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n + 1; j++) {
+            GtkWidget *entry = j == n ? w->entries[i][MAX_N] : w->entries[i][j];
+            const char *raw = gtk_editable_get_text(GTK_EDITABLE(entry));
             char *end = NULL;
             double value = g_ascii_strtod(raw, &end);
             while (end && g_ascii_isspace(*end)) end++;
@@ -35,57 +47,77 @@ static gboolean read_system(AppWidgets *w, double a[N][N], double b[N]) {
                 gtk_label_set_text(GTK_LABEL(w->status_label), message);
                 return FALSE;
             }
-            if (j < N) a[i][j] = value;
+            if (j < n) a[i][j] = value;
             else b[i] = value;
         }
     }
     return TRUE;
 }
 
-static void append_matrix(GString *out, const char *name, const double m[N][N]) {
+static void append_matrix(GString *out, const char *name, const double m[MAX_N][MAX_N], int n) {
     g_string_append_printf(out, "%s =\n", name);
-    for (int i = 0; i < N; i++)
-        g_string_append_printf(out, "  [ %10.4g  %10.4g  %10.4g ]\n", m[i][0], m[i][1], m[i][2]);
+    for (int i = 0; i < n; i++) {
+        g_string_append(out, "  [");
+        for (int j = 0; j < n; j++)
+            g_string_append_printf(out, " %10.4g", m[i][j]);
+        g_string_append(out, " ]\n");
+    }
     g_string_append_c(out, '\n');
 }
 
 static void solve_clicked(GtkButton *button, gpointer user_data) {
     (void)button;
     AppWidgets *w = user_data;
-    double a[N][N] = {{0}}, b[N] = {0};
-    if (!read_system(w, a, b)) return;
+    int n = selected_dimension(w);
+    double a[MAX_N][MAX_N] = {{0}}, b[MAX_N] = {0};
+    if (!read_system(w, a, b, n)) return;
 
-    double dxm[N][N], dym[N][N], dzm[N][N];
-    for (int i = 0; i < N; i++) {
-        for (int j = 0; j < N; j++) {
-            dxm[i][j] = (j == 0) ? b[i] : a[i][j];
-            dym[i][j] = (j == 1) ? b[i] : a[i][j];
-            dzm[i][j] = (j == 2) ? b[i] : a[i][j];
+    double replaced[MAX_N][MAX_N][MAX_N] = {{{0}}};
+    for (int k = 0; k < n; k++) {
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < n; j++)
+                replaced[k][i][j] = (j == k) ? b[i] : a[i][j];
         }
     }
 
-    double d = determinant(a), dx = determinant(dxm), dy = determinant(dym), dz = determinant(dzm);
-    GString *out = g_string_new("KRAMERLAB 3x3  |  PROCEDIMIENTO\n");
+    double d = determinant(a, n);
+    double deltas[MAX_N] = {0};
+    for (int k = 0; k < n; k++)
+        deltas[k] = determinant(replaced[k], n);
+
+    GString *out = g_string_new(n == 2 ? "KRAMERLAB 2x2  |  PROCEDIMIENTO\n"
+                                       : "KRAMERLAB 3x3  |  PROCEDIMIENTO\n");
     g_string_append(out, "==================================================\n\n");
-    append_matrix(out, "Matriz de coeficientes A", a);
-    append_matrix(out, "Matriz Δx (primera columna reemplazada por términos independientes)", dxm);
-    append_matrix(out, "Matriz Δy (segunda columna reemplazada por términos independientes)", dym);
-    append_matrix(out, "Matriz Δz (tercera columna reemplazada por términos independientes)", dzm);
-    g_string_append_printf(out, "Determinantes por expansión de la primera fila:\n"
-                               "Δ  = a(ei − fh) − b(di − fg) + c(dh − eg)\n"
-                               "Δ  = %.8g\nΔx = %.8g\nΔy = %.8g\nΔz = %.8g\n\n", d, dx, dy, dz);
+    append_matrix(out, "Matriz de coeficientes A", a, n);
+    const char *variables[] = {"x", "y", "z"};
+    for (int k = 0; k < n; k++) {
+        char name[96];
+        g_snprintf(name, sizeof(name), "Matriz Δ%s (%s columna reemplazada por términos independientes)",
+                   variables[k], k == 0 ? "primera" : k == 1 ? "segunda" : "tercera");
+        append_matrix(out, name, replaced[k], n);
+    }
+    if (n == 2)
+        g_string_append(out, "Determinantes:\nΔ = a·d − b·c\n");
+    else
+        g_string_append(out, "Determinante por expansión de la primera fila:\n"
+                             "Δ = a(ei − fh) − b(di − fg) + c(dh − eg)\n");
+    g_string_append_printf(out, "Δ = %.8g\n", d);
+    for (int k = 0; k < n; k++)
+        g_string_append_printf(out, "Δ%s = %.8g\n", variables[k], deltas[k]);
+    g_string_append_c(out, '\n');
 
     if (fabs(d) < 1e-10) {
         g_string_append(out, "No existe una solución única porque Δ = 0.\n");
         g_string_append(out, "El sistema puede ser incompatible o tener infinitas soluciones; se necesita analizar sus rangos para distinguirlos.");
         gtk_label_set_text(GTK_LABEL(w->status_label), "Sistema singular: el determinante principal es cero.");
     } else {
-        double x = dx / d, y = dy / d, z = dz / d;
-        g_string_append_printf(out, "Aplicando la regla de Cramer:\n"
-                                   "x = Δx / Δ = %.8g / %.8g = %.8g\n"
-                                   "y = Δy / Δ = %.8g / %.8g = %.8g\n"
-                                   "z = Δz / Δ = %.8g / %.8g = %.8g\n\n"
-                                   "SOLUCIÓN\n  x = %.8g\n  y = %.8g\n  z = %.8g\n", dx, d, x, dy, d, y, dz, d, z, x, y, z);
+        g_string_append(out, "Aplicando la regla de Cramer:\n");
+        for (int k = 0; k < n; k++)
+            g_string_append_printf(out, "%s = Δ%s / Δ = %.8g / %.8g = %.8g\n",
+                                   variables[k], variables[k], deltas[k], d, deltas[k] / d);
+        g_string_append(out, "\nSOLUCIÓN\n");
+        for (int k = 0; k < n; k++)
+            g_string_append_printf(out, "  %s = %.8g\n", variables[k], deltas[k] / d);
         gtk_label_set_text(GTK_LABEL(w->status_label), "Sistema resuelto correctamente.");
     }
     set_result(w, out->str);
@@ -95,24 +127,27 @@ static void solve_clicked(GtkButton *button, gpointer user_data) {
 static void load_example_clicked(GtkButton *button, gpointer user_data) {
     (void)button;
     AppWidgets *w = user_data;
-    const char *example[N][N + 1] = {
+    int n = selected_dimension(w);
+    const char *example_2x2[2][3] = {{"1", "1", "5"}, {"2", "-1", "1"}};
+    const char *example_3x3[3][4] = {
         {"2", "1", "-1", "8"},
         {"-3", "-1", "2", "-11"},
         {"-2", "1", "2", "-3"}
     };
-    for (int i = 0; i < N; i++)
-        for (int j = 0; j < N + 1; j++)
-            gtk_editable_set_text(GTK_EDITABLE(w->entries[i][j]), example[i][j]);
+    for (int i = 0; i < n; i++)
+        for (int j = 0; j < n + 1; j++)
+            gtk_editable_set_text(GTK_EDITABLE(j == n ? w->entries[i][MAX_N] : w->entries[i][j]),
+                                  n == 2 ? example_2x2[i][j] : example_3x3[i][j]);
     gtk_label_set_text(GTK_LABEL(w->status_label), "Ejemplo cargado. Pulsa Resolver para ver el procedimiento.");
 }
 
 static void clear_clicked(GtkButton *button, gpointer user_data) {
     (void)button;
     AppWidgets *w = user_data;
-    for (int i = 0; i < N; i++)
-        for (int j = 0; j < N + 1; j++)
+    for (int i = 0; i < MAX_N; i++)
+        for (int j = 0; j < MAX_N + 1; j++)
             gtk_editable_set_text(GTK_EDITABLE(w->entries[i][j]), "");
-    set_result(w, "Introduce los coeficientes y términos independientes, después pulsa Resolver.\n\nEl procedimiento mostrará las matrices y los determinantes Δ, Δx, Δy y Δz.");
+    set_result(w, "Introduce los coeficientes y términos independientes, después pulsa Resolver.\n\nEl procedimiento mostrará las matrices y los determinantes del sistema seleccionado.");
     gtk_label_set_text(GTK_LABEL(w->status_label), "Listo para un nuevo sistema.");
 }
 
@@ -149,13 +184,39 @@ static void load_css(void) {
     g_object_unref(provider);
 }
 
+static void dimension_changed(GObject *dropdown, GParamSpec *property, gpointer user_data) {
+    (void)dropdown;
+    (void)property;
+    AppWidgets *w = user_data;
+    int n = selected_dimension(w);
+
+    gtk_widget_set_visible(w->variable_headers[2], n == 3);
+    g_object_ref(w->result_header);
+    gtk_grid_remove(GTK_GRID(w->grid), w->result_header);
+    gtk_grid_attach(GTK_GRID(w->grid), w->result_header, n + 1, 0, 1, 1);
+    g_object_unref(w->result_header);
+    for (int i = 0; i < MAX_N; i++) {
+        gtk_widget_set_visible(w->equation_labels[i], i < n);
+        for (int j = 0; j < MAX_N; j++)
+            gtk_widget_set_visible(w->entries[i][j], i < n && j < n);
+        g_object_ref(w->entries[i][MAX_N]);
+        gtk_grid_remove(GTK_GRID(w->grid), w->entries[i][MAX_N]);
+        gtk_grid_attach(GTK_GRID(w->grid), w->entries[i][MAX_N], n + 1, i + 1, 1, 1);
+        g_object_unref(w->entries[i][MAX_N]);
+        gtk_widget_set_visible(w->entries[i][MAX_N], i < n);
+    }
+    gtk_label_set_text(GTK_LABEL(w->status_label),
+                       n == 2 ? "Seleccionado: sistema de 2 ecuaciones y 2 incógnitas."
+                              : "Seleccionado: sistema de 3 ecuaciones y 3 incógnitas.");
+}
+
 static void activate(GtkApplication *app, gpointer user_data) {
     (void)user_data;
     load_css();
     AppWidgets *w = g_new0(AppWidgets, 1);
 
     GtkWidget *window = gtk_application_window_new(app);
-    gtk_window_set_title(GTK_WINDOW(window), "KramerLab 3x3 — Regla de Cramer");
+    gtk_window_set_title(GTK_WINDOW(window), "KramerLab — Regla de Cramer");
     gtk_window_set_default_size(GTK_WINDOW(window), 1040, 760);
 
     GtkWidget *scroll = gtk_scrolled_window_new();
@@ -166,7 +227,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
 
     GtkWidget *hero = gtk_box_new(GTK_ORIENTATION_VERTICAL, 7);
     gtk_widget_add_css_class(hero, "hero");
-    GtkWidget *title = gtk_label_new("KRAMERLAB 3x3");
+    GtkWidget *title = gtk_label_new("KRAMERLAB");
     gtk_widget_add_css_class(title, "hero-title");
     gtk_label_set_xalign(GTK_LABEL(title), 0);
     GtkWidget *subtitle = gtk_label_new("Calculadora de sistemas lineales · Regla de Cramer · C + GTK 4");
@@ -186,30 +247,47 @@ static void activate(GtkApplication *app, gpointer user_data) {
     gtk_widget_set_valign(input_card, GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(columns), input_card);
 
-    GtkWidget *hint = gtk_label_new("Introduce los valores de a₁, a₂, a₃ y el término independiente de cada ecuación.");
+    GtkWidget *hint = gtk_label_new("Elige el tamaño del sistema e introduce sus coeficientes y términos independientes.");
     gtk_label_set_wrap(GTK_LABEL(hint), TRUE);
     gtk_label_set_xalign(GTK_LABEL(hint), 0);
     gtk_box_append(GTK_BOX(input_card), hint);
 
+    GtkWidget *dimension_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+    GtkWidget *dimension_label = gtk_label_new("Tamaño del sistema:");
+    gtk_widget_add_css_class(dimension_label, "matrix-head");
+    gtk_box_append(GTK_BOX(dimension_row), dimension_label);
+    const char *dimension_options[] = {"2x2 (2 incógnitas)", "3x3 (3 incógnitas)", NULL};
+    GtkStringList *dimension_list = gtk_string_list_new(dimension_options);
+    w->dimension_dropdown = gtk_drop_down_new(G_LIST_MODEL(dimension_list), NULL);
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(w->dimension_dropdown), 1);
+    gtk_box_append(GTK_BOX(dimension_row), w->dimension_dropdown);
+    gtk_box_append(GTK_BOX(input_card), dimension_row);
+
     GtkWidget *grid = gtk_grid_new();
+    w->grid = grid;
     gtk_grid_set_row_spacing(GTK_GRID(grid), 9);
     gtk_grid_set_column_spacing(GTK_GRID(grid), 7);
     const char *headers[] = {"x", "y", "z", "Resultado"};
     GtkWidget *equation_header = gtk_label_new("Ecuación");
     gtk_widget_add_css_class(equation_header, "matrix-head");
     gtk_grid_attach(GTK_GRID(grid), equation_header, 0, 0, 1, 1);
-    for (int j = 0; j < N + 1; j++) {
+    for (int j = 0; j < MAX_N; j++) {
         GtkWidget *label = gtk_label_new(headers[j]);
         gtk_widget_add_css_class(label, "matrix-head");
+        w->variable_headers[j] = label;
         gtk_grid_attach(GTK_GRID(grid), label, j + 1, 0, 1, 1);
     }
-    for (int i = 0; i < N; i++) {
+    w->result_header = gtk_label_new(headers[MAX_N]);
+    gtk_widget_add_css_class(w->result_header, "matrix-head");
+    gtk_grid_attach(GTK_GRID(grid), w->result_header, MAX_N + 1, 0, 1, 1);
+    for (int i = 0; i < MAX_N; i++) {
         char row_label[24];
         g_snprintf(row_label, sizeof(row_label), "Ecuación %d", i + 1);
         GtkWidget *label = gtk_label_new(row_label);
         gtk_label_set_xalign(GTK_LABEL(label), 0);
+        w->equation_labels[i] = label;
         gtk_grid_attach(GTK_GRID(grid), label, 0, i + 1, 1, 1);
-        for (int j = 0; j < N + 1; j++) {
+        for (int j = 0; j < MAX_N; j++) {
             GtkWidget *entry = gtk_entry_new();
             gtk_widget_set_size_request(entry, 70, -1);
             gtk_entry_set_input_purpose(GTK_ENTRY(entry), GTK_INPUT_PURPOSE_NUMBER);
@@ -217,7 +295,14 @@ static void activate(GtkApplication *app, gpointer user_data) {
             w->entries[i][j] = entry;
             gtk_grid_attach(GTK_GRID(grid), entry, j + 1, i + 1, 1, 1);
         }
+        GtkWidget *result_entry = gtk_entry_new();
+        gtk_widget_set_size_request(result_entry, 70, -1);
+        gtk_entry_set_input_purpose(GTK_ENTRY(result_entry), GTK_INPUT_PURPOSE_NUMBER);
+        gtk_widget_set_hexpand(result_entry, TRUE);
+        w->entries[i][MAX_N] = result_entry;
+        gtk_grid_attach(GTK_GRID(grid), result_entry, MAX_N + 1, i + 1, 1, 1);
     }
+    g_signal_connect(w->dimension_dropdown, "notify::selected", G_CALLBACK(dimension_changed), w);
     gtk_box_append(GTK_BOX(input_card), grid);
 
     GtkWidget *buttons = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
@@ -250,12 +335,13 @@ static void activate(GtkApplication *app, gpointer user_data) {
     gtk_widget_add_css_class(w->status_label, "status");
     gtk_label_set_xalign(GTK_LABEL(w->status_label), 0);
     gtk_box_append(GTK_BOX(root), w->status_label);
+    dimension_changed(G_OBJECT(w->dimension_dropdown), NULL, w);
 
     g_signal_connect(solve, "clicked", G_CALLBACK(solve_clicked), w);
     g_signal_connect(example, "clicked", G_CALLBACK(load_example_clicked), w);
     g_signal_connect(clear, "clicked", G_CALLBACK(clear_clicked), w);
 
-    set_result(w, "Introduce un sistema de 3 ecuaciones con 3 incógnitas.\n\nPulsa ‘Cargar ejemplo’ para probar la calculadora.");
+    set_result(w, "Elige un sistema de 2x2 o 3x3.\n\nPulsa ‘Cargar ejemplo’ para probar la calculadora.");
     load_example_clicked(GTK_BUTTON(example), w);
     gtk_window_present(GTK_WINDOW(window));
 }
