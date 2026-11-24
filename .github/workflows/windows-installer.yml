@@ -13,7 +13,7 @@ jobs:
       - name: Descargar el proyecto
         uses: actions/checkout@v4
 
-      - name: Instalar GTK4 y compilador C
+      - name: Instalar GTK4 y compilador C++
         uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
@@ -30,7 +30,7 @@ jobs:
         run: |
           mkdir -p build/bin build/share build/lib
 
-          gcc -mwindows -Wall -Wextra -O2 src/main.c \
+          g++ -mwindows -std=c++17 -Wall -Wextra -O2 src/main.cpp \
             -o build/bin/KramerLab.exe \
             $(pkg-config --cflags --libs gtk4) -lm
 

@@ -1,6 +1,6 @@
-# KramerLab — versión de escritorio en C
+# KramerLab — versión de escritorio en C++
 
-Aplicación gráfica de escritorio para Linux desarrollada en **C y GTK 4**. Permite elegir y resolver sistemas lineales de **2 ecuaciones con 2 incógnitas (2x2)** o de **3 ecuaciones con 3 incógnitas (3x3)** mediante la regla de Cramer. Muestra las matrices usadas, los determinantes y el procedimiento.
+Aplicación gráfica de escritorio para Linux desarrollada en **C++ y GTK 4**. Permite elegir y resolver sistemas lineales de **2 ecuaciones con 2 incógnitas (2x2)** o de **3 ecuaciones con 3 incógnitas (3x3)** mediante la regla de Cramer. Muestra las matrices usadas, los determinantes y el procedimiento.
 
 ## Características
 

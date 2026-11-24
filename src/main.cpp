@@ -1,7 +1,8 @@
 #include <gtk/gtk.h>
-#include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
+
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
 
 #define MAX_N 3
 
@@ -67,7 +68,7 @@ static void append_matrix(GString *out, const char *name, const double m[MAX_N][
 
 static void solve_clicked(GtkButton *button, gpointer user_data) {
     (void)button;
-    AppWidgets *w = user_data;
+    AppWidgets *w = static_cast<AppWidgets *>(user_data);
     int n = selected_dimension(w);
     double a[MAX_N][MAX_N] = {{0}}, b[MAX_N] = {0};
     if (!read_system(w, a, b, n)) return;
@@ -126,7 +127,7 @@ static void solve_clicked(GtkButton *button, gpointer user_data) {
 
 static void load_example_clicked(GtkButton *button, gpointer user_data) {
     (void)button;
-    AppWidgets *w = user_data;
+    AppWidgets *w = static_cast<AppWidgets *>(user_data);
     int n = selected_dimension(w);
     const char *example_2x2[2][3] = {{"1", "1", "5"}, {"2", "-1", "1"}};
     const char *example_3x3[3][4] = {
@@ -143,7 +144,7 @@ static void load_example_clicked(GtkButton *button, gpointer user_data) {
 
 static void clear_clicked(GtkButton *button, gpointer user_data) {
     (void)button;
-    AppWidgets *w = user_data;
+    AppWidgets *w = static_cast<AppWidgets *>(user_data);
     for (int i = 0; i < MAX_N; i++)
         for (int j = 0; j < MAX_N + 1; j++)
             gtk_editable_set_text(GTK_EDITABLE(w->entries[i][j]), "");
@@ -187,7 +188,7 @@ static void load_css(void) {
 static void dimension_changed(GObject *dropdown, GParamSpec *property, gpointer user_data) {
     (void)dropdown;
     (void)property;
-    AppWidgets *w = user_data;
+    AppWidgets *w = static_cast<AppWidgets *>(user_data);
     int n = selected_dimension(w);
 
     gtk_widget_set_visible(w->variable_headers[2], n == 3);
@@ -230,7 +231,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
     GtkWidget *title = gtk_label_new("KRAMERLAB");
     gtk_widget_add_css_class(title, "hero-title");
     gtk_label_set_xalign(GTK_LABEL(title), 0);
-    GtkWidget *subtitle = gtk_label_new("Calculadora de sistemas lineales · Regla de Cramer · C + GTK 4");
+    GtkWidget *subtitle = gtk_label_new("Calculadora de sistemas lineales · Regla de Cramer · C++ + GTK 4");
     gtk_widget_add_css_class(subtitle, "hero-sub");
     gtk_label_set_xalign(GTK_LABEL(subtitle), 0);
     gtk_box_append(GTK_BOX(hero), title);
